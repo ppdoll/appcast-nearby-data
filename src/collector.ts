@@ -224,7 +224,11 @@ async function fetchInventory(
         `(${Math.round(settings.maxStationDrop * 100)}% 넘게 줄면 게시하지 않아요).`,
     );
   }
-  log(`충전소 ${stations.length}곳 (이용자 제한·삭제·버스 전용·좌표 이상은 뺐어요)`);
+  const { limited, closed, badPoint } = builder.excluded;
+  log(
+    `충전소 ${stations.length}곳 (뺀 곳: 이용자 제한 ${limited}, 시험용·비개방 ${closed}, 좌표 이상 ${badPoint}. ` +
+      '지운 충전기·버스 전용 충전기도 뺐어요)',
+  );
   return { version: 1, inventoryAt: startedAt, statusAt: startedAt, statusComplete: true, rows: total, stations };
 }
 

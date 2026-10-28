@@ -169,7 +169,9 @@ async function fetchInventory(portal, previous, startedAt, settings, log, extraR
         throw new CheckError(`충전소가 ${previous.stations.length}곳에서 ${stations.length}곳으로 줄었어요 ` +
             `(${Math.round(settings.maxStationDrop * 100)}% 넘게 줄면 게시하지 않아요).`);
     }
-    log(`충전소 ${stations.length}곳 (이용자 제한·삭제·버스 전용·좌표 이상은 뺐어요)`);
+    const { limited, closed, badPoint } = builder.excluded;
+    log(`충전소 ${stations.length}곳 (뺀 곳: 이용자 제한 ${limited}, 시험용·비개방 ${closed}, 좌표 이상 ${badPoint}. ` +
+        '지운 충전기·버스 전용 충전기도 뺐어요)');
     return { version: 1, inventoryAt: startedAt, statusAt: startedAt, statusComplete: true, rows: total, stations };
 }
 /** 한 시도의 목록을 쪽마다 받아 [builder] 에 넣고, 쪽마다 진행을 남긴다. 받은 쪽 수를 돌려준다 */

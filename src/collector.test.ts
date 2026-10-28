@@ -110,6 +110,9 @@ describe('collect', () => {
     expect(result.lines.some((line) => /^전국 목록 서울\(11\) 1\/1쪽: 2대, \d+\.\d초$/.test(line))).toBe(true);
     expect(result.lines.some((line) => /^전국 목록 부산\(26\) 1\/1쪽: 1대, \d+\.\d초$/.test(line))).toBe(true);
     expect(result.lines).toContain('전국 목록 19쪽: 항목 3개, 겹치지 않는 충전기 3대 (전국 3대)');
+    expect(result.lines).toContain(
+      '충전소 2곳 (뺀 곳: 이용자 제한 0, 시험용·비개방 0, 좌표 이상 0. 지운 충전기·버스 전용 충전기도 뺐어요)',
+    );
     expect(await meta()).toMatchObject({
       dataVersion: '20261028-120000',
       inventoryAt: T0,

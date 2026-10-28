@@ -27,6 +27,10 @@ const SLOW_TYPES = new Set(['02', '08']);
 const BUS_ONLY_TYPES = new Set(['11']);
 /** 처음 보는 충전기 타입은 출력으로 가른다 */
 const FAST_KW = 30;
+/** 이름에 이런 말이 있으면 시험용 충전소다 (「운전면허시험장」 같은 이름은 남게 '시험용'까지 본다) */
+const TEST_NAME = /테스트|시험용/;
+/** 이용 시간에 이런 말이 있으면 일반인이 쓸 수 없는 곳이다 */
+const CLOSED_HOURS = /비개방|미개방|비공개/;
 /** stat 2 = 충전대기 (1 통신이상, 3 충전중, 4 운영중지, 5 점검중, 9 상태미확인) */
 export const AVAILABLE = '2';
 const UNKNOWN_STATUS = '9';
@@ -112,15 +116,32 @@ export class InventoryBuilder {
         for (const plug of PLUGS_BY_TYPE.get(row.type) ?? [])
             draft.plugs.add(plug);
     }
-    /** 이용자 제한이 있거나 좌표가 이상한 충전소는 뺀다 */
+    /** 지난 [build] 에서 뺀 충전소 수 (로그로 남긴다) */
+    excluded = { limited: 0, closed: 0, badPoint: 0 };
+    /**
+     * 이용자 제한이 있거나, 일반인이 쓸 수 없는 곳(시험용·비개방)이거나, 좌표가 이상한 충전소는 뺀다.
+     * 시험용·비개방은 차량 화면에서 실제로 보여 걸러 낸다 (2026-10-28, 「(테스트) 개발시험용(GS차지비)」 · 이용 시간 "비개방").
+     */
     build() {
         const stations = [];
+        this.excluded = { limited: 0, closed: 0, badPoint: 0 };
         for (const [id, draft] of this.drafts) {
-            if (draft.limited || draft.lat === undefined || draft.lng === undefined)
+            if (draft.limited) {
+                this.excluded.limited++;
                 continue;
+            }
+            if (draft.lat === undefined || draft.lng === undefined) {
+                this.excluded.badPoint++;
+                continue;
+            }
             const name = cleanText(draft.first.name, MAX_TEXT_LENGTH);
             if (!name)
                 continue;
+            const hours = optionalText(draft.first.hours);
+            if (TEST_NAME.test(name) || (hours !== undefined && CLOSED_HOURS.test(hours))) {
+                this.excluded.closed++;
+                continue;
+            }
             stations.push({
                 id,
                 name,
@@ -128,7 +149,7 @@ export class InventoryBuilder {
                 lng: roundCoordinate(draft.lng),
                 address: optionalText(draft.first.address),
                 operator: optionalText(draft.first.operator),
-                hours: optionalText(draft.first.hours),
+                hours,
                 maxKw: draft.maxKw,
                 plugs: PLUG_ORDER.filter((plug) => draft.plugs.has(plug)),
                 fast: draft.fast,

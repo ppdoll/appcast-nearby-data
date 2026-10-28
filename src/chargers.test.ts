@@ -32,6 +32,22 @@ describe('InventoryBuilder', () => {
     expect(stations.map((it) => [it.id, it.fast, it.slow])).toEqual([['ME1', ['01'], []]]);
   });
 
+  it('시험용·비개방 충전소는 빼고, 뺀 까닭별로 센다', () => {
+    const builder = new InventoryBuilder();
+    builder.addItems([
+      evItem({ statId: 'OK', name: '역삼 공영주차장' }),
+      evItem({ statId: 'EXAM', name: '운전면허시험장 주차장' }), // '시험'만 있으면 남긴다
+      evItem({ statId: 'TEST1', name: '(테스트) 개발시험용(GS차지비)' }),
+      evItem({ statId: 'TEST2', name: '충전기 테스트 1' }),
+      { ...evItem({ statId: 'CLOSED' }), useTime: '비개방' },
+      { ...evItem({ statId: 'CLOSED2' }), useTime: '미개방 (관리실 문의)' },
+      evItem({ statId: 'APT', limitYn: 'Y' }),
+      evItem({ statId: 'FAR', lat: 0, lng: 0 }),
+    ]);
+    expect(builder.build().map((it) => it.id)).toEqual(['OK', 'EXAM']);
+    expect(builder.excluded).toEqual({ limited: 1, closed: 4, badPoint: 1 });
+  });
+
   it('지운 충전기에만 이용자 제한이 붙어 있으면 충전소는 남긴다 (폰과 같다)', () => {
     const stations = build([evItem({ statId: 'ME1' }), evItem({ statId: 'ME1', chgerId: '02', delYn: 'Y', limitYn: 'Y' })]);
     expect(stations).toHaveLength(1);
