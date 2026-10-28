@@ -200,19 +200,37 @@ describe('collect', () => {
     expect(await meta()).toMatchObject({ stations: 2100, chargers: 10_500 });
   });
 
-  it('시도별로 받은 합계가 전국 수와 크게 다르면 게시하지 않는다', async () => {
-    const result = await run(portalFor(world({ total: 1000 })), T0);
+  it('모르는 시도 코드까지 찾아봐도 합계가 전국 수와 크게 다르면 게시하지 않는다', async () => {
+    const portal = portalFor(world({ total: 1000 }));
+    const result = await run(portal, T0);
     expect(result.published).toBe(false);
+    expect(result.lines).toContain('시도별 합계가 전국보다 997대 적어요. 목록에 없는 시도 코드를 찾아봐요');
+    // REGIONS 에 없는 10~99 를 모두 1대씩 물어봤다
+    const probes = portal.requests.filter((request) => request.params.zcode !== undefined && request.params.numOfRows === 1);
+    expect(probes).toHaveLength(90 - REGIONS.length);
     expect(result.problems).toEqual([
       '시도별로 받은 충전기 3대가 전국 1000대와 맞지 않아요. 받는 사이 목록이 크게 바뀌었거나, 개편으로 시도 코드가 바뀌었을 수 있어요.',
     ]);
   });
 
-  it('모르는 시도 코드의 충전기가 있으면 빠진 것을 알아챈다', async () => {
+  it('목록에 없는 시도 코드는 찾아서 받고, 다음 전체 갱신부터는 찾지 않고 바로 받는다', async () => {
+    // 광주(29)·전남(46)이 통합되어 새 코드(53)로 바뀐 것처럼
     const inventory = [...world().inventory, ...Array.from({ length: 5 }, (_, i) => evItem({ statId: `NEW${i}`, zcode: '53' }))];
-    const result = await run(portalFor(world({ inventory })), T0);
-    expect(result.published).toBe(false);
-    expect(result.problems[0]).toContain('시도별로 받은 충전기 3대가 전국 8대와 맞지 않아요');
+    const portal = portalFor(world({ inventory }));
+    const result = await run(portal, T0);
+    expect(result).toMatchObject({ published: true, problems: [] });
+    expect(result.lines).toContain('시도별 합계가 전국보다 5대 적어요. 목록에 없는 시도 코드를 찾아봐요');
+    expect(result.lines).toContain('목록에 없던 시도 코드 53 에 충전기 5대가 있어요');
+    expect(result.lines.some((line) => /^전국 목록 새 코드\(53\) 1\/1쪽: 5대, /.test(line))).toBe(true);
+    expect(await meta()).toMatchObject({ stations: 7, chargers: 8 });
+    expect(await ledger()).toMatchObject({ extraRegions: ['53'] });
+
+    const next = portalFor(world({ inventory }));
+    const again = await run(next, T0 + 25 * HOUR); // 다음 날 하루 한 번 전체 갱신
+    expect(again).toMatchObject({ plan: { chargers: 'full' }, published: true, problems: [] });
+    expect(next.requests.some((request) => request.params.zcode === '53' && request.params.numOfRows === 9999)).toBe(true);
+    expect(next.requests.filter((request) => request.params.zcode !== undefined && request.params.numOfRows === 1)).toEqual([]);
+    expect(await ledger()).toMatchObject({ day: '2026-10-29', extraRegions: ['53'] });
   });
 
   it('충전소가 지난 전체 갱신보다 20% 넘게 줄면 게시하지 않는다', async () => {

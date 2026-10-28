@@ -33,6 +33,15 @@ export const REGIONS: ReadonlyArray<readonly [code: string, name: string]> = [
   ['51', '강원'],
   ['52', '전북'],
 ];
+
+const range = (from: number, to: number): number[] => Array.from({ length: to - from + 1 }, (_, i) => from + i);
+
+/**
+ * 시도별 합계가 전국 수보다 모자랄 때 [REGIONS] 에 없는 시도 코드를 물어보는 차례 (1대만 받아 수를 본다).
+ * 새 코드는 지금 코드 뒤에 붙어 왔으므로 53 부터 99 까지, 그다음 10 부터 52 까지.
+ * 2026-10-28: 광주(29)·전남(46)이 0대이고 합계가 3만 대쯤 모자랐다 (통합으로 새 코드가 생긴 것으로 보인다).
+ */
+export const PROBE_CODES: readonly string[] = [...range(53, 99), ...range(10, 52)].map(String);
 /** 상태 변경분(getChargerStatus) 한 쪽 */
 export const STATUS_PAGE_SIZE = 9999;
 /** 상태 변경분 창 (분). 포털이 허용하는 가장 긴 값이다 */

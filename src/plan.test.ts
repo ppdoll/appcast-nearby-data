@@ -74,6 +74,7 @@ describe('decide', () => {
 
   it('전체 갱신 예산(전국 수 1회 + 쪽 수 + 시도 수)이 모자라면 변경분만', () => {
     expect(fullRunCost(520_000)).toBe(1 + 53 + 19);
+    expect(fullRunCost(520_000, 1)).toBe(1 + 53 + 19 + 1); // 찾아낸 시도 코드
     expect(fullRunCost(undefined)).toBe(90);
     const old = { chargers: { ...fresh, inventoryAt: NOW - 25 * HOUR } };
     expect(plan(old, { chargerCalls: 900 - 72 })).toMatchObject({ chargers: 'status' });

@@ -97,7 +97,8 @@ function isLedger(value: unknown): value is Ledger {
     isTime(value.fullRuns) &&
     isOptionalTime(value.lastFullAttemptAt) &&
     isOptionalTime(value.lastRestAreaAttemptAt) &&
-    isOptionalText(value.lastDataVersion)
+    isOptionalText(value.lastDataVersion) &&
+    (value.extraRegions === undefined || isTextList(value.extraRegions))
   );
 }
 

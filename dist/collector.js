@@ -2,7 +2,7 @@ import { applyStatus, InventoryBuilder, statusUpdate } from './chargers.js';
 import { decide, ledgerFor, nextDataVersion } from './plan.js';
 import { MeteredPortal, PortalError } from './portal.js';
 import { parseRestAreas } from './rest-areas.js';
-import { DEFAULT_SETTINGS, INVENTORY_PAGE_SIZE, MAX_INVENTORY_PAGES, MAX_REST_AREA_PAGES, MAX_STATUS_PAGES, REGIONS, REST_AREA_PAGE_SIZE, STATUS_PAGE_SIZE, STATUS_PERIOD_MINUTES, } from './settings.js';
+import { DEFAULT_SETTINGS, INVENTORY_PAGE_SIZE, MAX_INVENTORY_PAGES, MAX_REST_AREA_PAGES, MAX_STATUS_PAGES, PROBE_CODES, REGIONS, REST_AREA_PAGE_SIZE, STATUS_PAGE_SIZE, STATUS_PERIOD_MINUTES, } from './settings.js';
 import { buildSite, checkSite, largestTile, writeSite } from './site.js';
 import { loadState, saveState } from './state.js';
 /** 받은 데이터가 게시 전 검사(docs/nearby-server.md 4.5)를 통과하지 못했다 */
@@ -43,7 +43,11 @@ export async function collect(options) {
         if (plan.chargers === 'full') {
             ledger.fullRuns++;
             ledger.lastFullAttemptAt = startedAt;
-            const fresh = await attempt(() => fetchInventory(portal, state.chargers, startedAt, settings, log), problems);
+            // 찾아낸 시도 코드는 이번 갱신이 실패해도 장부에 남겨, 다음에는 찾지 않고 바로 받는다
+            const found = (code) => {
+                ledger.extraRegions = [...new Set([...(ledger.extraRegions ?? []), code])];
+            };
+            const fresh = await attempt(() => fetchInventory(portal, state.chargers, startedAt, settings, log, ledger.extraRegions ?? [], found), problems);
             if (fresh)
                 [chargers, chargersChanged] = [fresh, true];
         }
@@ -112,9 +116,10 @@ async function attempt(work, problems) {
 }
 /**
  * 전국 목록을 모두 받아 충전소 목록을 새로 만든다. 전국 수를 먼저 1대만 받아 알아낸 뒤, 시도(zcode)마다 나눠 받는다.
- * 시도별로 받은 합계가 전국 수와 맞아야 쓴다 (시도 코드가 바뀌어 빠진 곳이 있으면 알린다).
+ * 시도별 합계가 전국 수보다 모자라면 [REGIONS] 에 없는 시도 코드를 차례로 물어 찾아 받고([onFound] 로 알린다),
+ * 그래도 맞지 않으면 쓰지 않는다. [extraRegions] 는 지난번에 찾아낸 시도 코드다.
  */
-async function fetchInventory(portal, previous, startedAt, settings, log) {
+async function fetchInventory(portal, previous, startedAt, settings, log, extraRegions, onFound) {
     const national = await portal.page({ api: 'chargerInfo', params: { pageNo: 1, numOfRows: 1, dataType: 'JSON' } });
     if (national.totalCount === null)
         throw new PortalError('충전기 정보 응답에 전체 수(totalCount)가 없어요.');
@@ -123,15 +128,35 @@ async function fetchInventory(portal, previous, startedAt, settings, log) {
     if (pages > MAX_INVENTORY_PAGES) {
         throw new CheckError(`충전기가 ${total}대라 ${pages}쪽을 받아야 해요 (${MAX_INVENTORY_PAGES}쪽까지만 받아요).`);
     }
-    const needed = pages + REGIONS.length;
+    const extra = extraRegions.filter((code) => !REGIONS.some(([known]) => known === code));
+    const regions = [...REGIONS, ...extra.map((code) => [code, '새 코드'])];
+    const needed = pages + regions.length;
     if (needed > portal.remainingChargerCalls) {
         throw new PortalError(`전국 목록(약 ${needed}회)을 받기에는 오늘 남은 호출 예산(${portal.remainingChargerCalls}회)이 모자라요.`);
     }
-    log(`전국 충전기 ${total}대: 시도 ${REGIONS.length}곳으로 나눠 받아요 (약 ${needed}회)`);
+    log(`전국 충전기 ${total}대: 시도 ${regions.length}곳으로 나눠 받아요 (약 ${needed}회)`);
     const builder = new InventoryBuilder();
     let pageCount = 0;
-    for (const [code, name] of REGIONS)
+    for (const [code, name] of regions)
         pageCount += await fetchRegion(portal, builder, code, name, log);
+    const short = () => builder.uniqueChargers < total * (1 - settings.countTolerance);
+    if (short()) {
+        log(`시도별 합계가 전국보다 ${total - builder.uniqueChargers}대 적어요. 목록에 없는 시도 코드를 찾아봐요`);
+        const known = new Set(regions.map(([code]) => code));
+        for (const code of PROBE_CODES) {
+            if (!short())
+                break;
+            if (known.has(code))
+                continue;
+            const probe = await portal.page({ api: 'chargerInfo', params: { pageNo: 1, numOfRows: 1, zcode: code, dataType: 'JSON' } });
+            const count = probe.totalCount ?? probe.items.length;
+            if (count === 0)
+                continue;
+            log(`목록에 없던 시도 코드 ${code} 에 충전기 ${count}대가 있어요`);
+            onFound(code);
+            pageCount += await fetchRegion(portal, builder, code, '새 코드', log);
+        }
+    }
     log(`전국 목록 ${pageCount}쪽: 항목 ${builder.items}개, 겹치지 않는 충전기 ${builder.uniqueChargers}대 (전국 ${total}대)`);
     if (Math.abs(builder.uniqueChargers - total) > total * settings.countTolerance) {
         throw new CheckError(`시도별로 받은 충전기 ${builder.uniqueChargers}대가 전국 ${total}대와 맞지 않아요. ` +

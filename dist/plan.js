@@ -36,14 +36,17 @@ export function ledgerFor(previous, now) {
         lastFullAttemptAt: previous?.lastFullAttemptAt,
         lastRestAreaAttemptAt: previous?.lastRestAreaAttemptAt,
         lastDataVersion: previous?.lastDataVersion,
+        extraRegions: previous?.extraRegions,
     };
 }
 /**
  * 전체 갱신 한 번에 드는 호출 수 어림: 전국 수 1회 + 쪽 수 + 시도마다 끝 쪽 하나씩.
  * 다시 부르는 것은 넣지 않는다 (예산을 넘기 전에 MeteredPortal 이 멈춘다)
  */
-export function fullRunCost(rows) {
-    return rows === undefined ? FIRST_FULL_RUN_COST : 1 + Math.ceil(rows / INVENTORY_PAGE_SIZE) + REGIONS.length;
+export function fullRunCost(rows, extraRegions = 0) {
+    return rows === undefined
+        ? FIRST_FULL_RUN_COST
+        : 1 + Math.ceil(rows / INVENTORY_PAGE_SIZE) + REGIONS.length + extraRegions;
 }
 /**
  * 이번 실행에서 할 일 (docs/nearby-server.md 4.3).
@@ -55,7 +58,7 @@ export function decide(input, settings) {
     const remaining = settings.dailyChargerCalls - ledger.chargerCalls;
     const gap = chargers !== null && now - chargers.statusAt > settings.statusGapMs;
     const incomplete = chargers !== null && (gap || !chargers.statusComplete);
-    const affordable = remaining >= fullRunCost(chargers?.rows);
+    const affordable = remaining >= fullRunCost(chargers?.rows, ledger.extraRegions?.length ?? 0);
     const budgetText = `오늘 예산 ${ledger.chargerCalls}/${settings.dailyChargerCalls}회`;
     const full = (reason) => ({ chargers: 'full', incomplete: false, restAreas, reason });
     const none = (reason) => ({ chargers: 'none', incomplete: false, restAreas, reason });

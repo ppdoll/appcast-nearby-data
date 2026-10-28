@@ -24,6 +24,8 @@ export interface Ledger {
   lastRestAreaAttemptAt?: number;
   /** 마지막으로 게시한 dataVersion */
   lastDataVersion?: string;
+  /** REGIONS 에 없어 찾아낸 시도 코드. 다음 전체 갱신부터 바로 받는다 */
+  extraRegions?: string[];
 }
 
 /** 할 일을 정하는 데 쓰는 저장된 충전소 상태 */
@@ -86,6 +88,7 @@ export function ledgerFor(previous: Ledger | null, now: number): Ledger {
     lastFullAttemptAt: previous?.lastFullAttemptAt,
     lastRestAreaAttemptAt: previous?.lastRestAreaAttemptAt,
     lastDataVersion: previous?.lastDataVersion,
+    extraRegions: previous?.extraRegions,
   };
 }
 
@@ -93,8 +96,10 @@ export function ledgerFor(previous: Ledger | null, now: number): Ledger {
  * 전체 갱신 한 번에 드는 호출 수 어림: 전국 수 1회 + 쪽 수 + 시도마다 끝 쪽 하나씩.
  * 다시 부르는 것은 넣지 않는다 (예산을 넘기 전에 MeteredPortal 이 멈춘다)
  */
-export function fullRunCost(rows: number | undefined): number {
-  return rows === undefined ? FIRST_FULL_RUN_COST : 1 + Math.ceil(rows / INVENTORY_PAGE_SIZE) + REGIONS.length;
+export function fullRunCost(rows: number | undefined, extraRegions = 0): number {
+  return rows === undefined
+    ? FIRST_FULL_RUN_COST
+    : 1 + Math.ceil(rows / INVENTORY_PAGE_SIZE) + REGIONS.length + extraRegions;
 }
 
 /**
@@ -107,7 +112,7 @@ export function decide(input: PlanInput, settings: Settings): Plan {
   const remaining = settings.dailyChargerCalls - ledger.chargerCalls;
   const gap = chargers !== null && now - chargers.statusAt > settings.statusGapMs;
   const incomplete = chargers !== null && (gap || !chargers.statusComplete);
-  const affordable = remaining >= fullRunCost(chargers?.rows);
+  const affordable = remaining >= fullRunCost(chargers?.rows, ledger.extraRegions?.length ?? 0);
   const budgetText = `오늘 예산 ${ledger.chargerCalls}/${settings.dailyChargerCalls}회`;
 
   const full = (reason: string): Plan => ({ chargers: 'full', incomplete: false, restAreas, reason });
