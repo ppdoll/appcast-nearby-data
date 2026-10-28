@@ -1,0 +1,20 @@
+{
+  "name": "appcast-nearby-data",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "공공데이터포털의 전국 충전소·휴게소를 모아 약 5km 칸 정적 JSON 으로 게시하는 수집기",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "collect": "node dist/main.js",
+    "test": "tsc --noEmit -p tsconfig.json && vitest run"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.6.0",
+    "vitest": "^3.0.0"
+  }
+}

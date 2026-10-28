@@ -1,0 +1,51 @@
+{
+  "resultMsg": "NORMAL SERVICE.",
+  "totalCount": 4,
+  "items": {
+    "item": [
+      {
+        "busiId": "ME",
+        "statId": "DEMO0",
+        "chgerId": "02",
+        "stat": "2",
+        "statUpdDt": "20261028102000",
+        "lastTsdt": "20261028090000",
+        "lastTedt": "20261028093000",
+        "nowTsdt": ""
+      },
+      {
+        "busiId": "ME",
+        "statId": "DEMO4",
+        "chgerId": "04",
+        "stat": "2",
+        "statUpdDt": "20261028102000",
+        "lastTsdt": "20261028090000",
+        "lastTedt": "20261028093000",
+        "nowTsdt": ""
+      },
+      {
+        "busiId": "ME",
+        "statId": "DEMO9",
+        "chgerId": "01",
+        "stat": "2",
+        "statUpdDt": "20261028102000",
+        "lastTsdt": "20261028090000",
+        "lastTedt": "20261028093000",
+        "nowTsdt": ""
+      },
+      {
+        "busiId": "ME",
+        "statId": "DEMO1",
+        "chgerId": "01",
+        "stat": "3",
+        "statUpdDt": "20261028102000",
+        "lastTsdt": "20261028090000",
+        "lastTedt": "20261028093000",
+        "nowTsdt": ""
+      }
+    ]
+  },
+  "pageNo": 1,
+  "resultCode": "00",
+  "numOfRows": 9999
+}

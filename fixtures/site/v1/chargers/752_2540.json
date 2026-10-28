@@ -1,0 +1,1 @@
+{"version":1,"tile":"752_2540","statusAt":1793156400000,"stations":[{"id":"DEMO5","name":"데모 고속도로 충전소","lat":37.60768,"lng":127.00188,"address":"서울특별시 중구 한강대로 405","operator":"환경부","hours":"24시간 이용가능","fast":{"total":4,"available":4},"slow":{"total":0,"available":0},"maxKw":350,"plugs":["dc-combo"]}]}

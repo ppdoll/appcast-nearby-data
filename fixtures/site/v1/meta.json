@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "dataVersion": "20261028-120000",
+  "tileSize": 0.05,
+  "inventoryAt": 1793156400000,
+  "statusAt": 1793156400000,
+  "statusComplete": true,
+  "restAreasAt": 1793156400000,
+  "stations": 5,
+  "chargers": 19,
+  "tiles": 3,
+  "source": "한국환경공단 전기자동차 충전소 정보, 전국휴게소정보표준데이터 (공공데이터포털, 공공누리 제1유형)"
+}
