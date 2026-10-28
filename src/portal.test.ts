@@ -188,14 +188,29 @@ describe('MeteredPortal', () => {
     expect(fake.requests).toHaveLength(1);
   });
 
-  it('일시 오류는 다시 부르고, 다시 부른 것도 센다', async () => {
+  it('일시 오류는 점점 길게 기다렸다 다시 부르고, 다시 부른 것도 센다', async () => {
     let n = 0;
     const fake = new FakePortal(() => (++n < 3 ? xmlError('01', 'APPLICATION_ERROR') : evResponse([])));
-    const sleep = vi.fn(async () => undefined);
-    const metered = new MeteredPortal(fake, { chargerCallBudget: 10, sleep });
+    const sleep = vi.fn(async (_ms: number) => undefined);
+    const lines: string[] = [];
+    const metered = new MeteredPortal(fake, { chargerCallBudget: 10, sleep, log: (line) => lines.push(line) });
     await expect(metered.page(INFO)).resolves.toEqual({ items: [], totalCount: 0 });
     expect(metered.chargerCalls).toBe(3);
-    expect(sleep).toHaveBeenCalledTimes(2);
+    expect(sleep.mock.calls.map(([ms]) => ms)).toEqual([5_000, 20_000]);
+    expect(lines[1]).toBe(
+      '「한국환경공단_전기자동차 충전소 정보 (충전기 정보 조회)」 오류: APPLICATION_ERROR (코드 01) 20초 뒤 다시 불러요 (2/3)',
+    );
+  });
+
+  it('504 가 이어지면 세 번까지 다시 부르고 멈춘다', async () => {
+    const http = new HttpPortal(KEY, {
+      fetch: (async () => new Response('<html>504 Gateway Time-out</html>', { status: 504 })) as unknown as typeof globalThis.fetch,
+    });
+    const sleep = vi.fn(async (_ms: number) => undefined);
+    const metered = new MeteredPortal(http, { chargerCallBudget: 10, sleep });
+    await expect(metered.page(INFO)).rejects.toThrow('서버가 답하지 않아요 (HTTP 504)');
+    expect(metered.chargerCalls).toBe(4);
+    expect(sleep.mock.calls.map(([ms]) => ms)).toEqual([5_000, 20_000, 60_000]);
   });
 
   it('인증키 오류 같은 것은 다시 부르지 않는다', async () => {

@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { collect, type CollectOptions } from './collector.js';
 import { HttpPortal, type JsonObject, type PageRequest } from './portal.js';
-import { DEFAULT_SETTINGS } from './settings.js';
+import { DEFAULT_SETTINGS, REGIONS } from './settings.js';
 import { saveState } from './state.js';
 import {
   evItem,
@@ -52,7 +52,7 @@ function world(overrides: Partial<World> = {}): World {
     inventory: [
       evItem({ statId: 'ME1', chgerId: '01', stat: '3' }),
       evItem({ statId: 'ME1', chgerId: '02', type: '02', stat: '2' }),
-      evItem({ statId: 'ME2', lat: 35.1796, lng: 129.0756 }),
+      evItem({ statId: 'ME2', lat: 35.1796, lng: 129.0756, zcode: '26' }),
     ],
     status: [],
     restAreas: manyRestAreaItems(),
@@ -96,11 +96,20 @@ describe('collect', () => {
       plan: { chargers: 'full', restAreas: true },
       published: true,
       dataVersion: '20261028-120000',
-      chargerCalls: 1,
+      chargerCalls: 1 + REGIONS.length, // 전국 수 + 시도마다 한 쪽
       restAreaCalls: 1,
       problems: [],
     });
-    expect(portal.requests[0]).toEqual({ api: 'chargerInfo', params: { pageNo: 1, numOfRows: 9999, dataType: 'JSON' } });
+    // 전국 수는 1대만 받아 알아내고, 목록은 시도마다 나눠 받는다
+    expect(portal.requests[0]).toEqual({ api: 'chargerInfo', params: { pageNo: 1, numOfRows: 1, dataType: 'JSON' } });
+    expect(portal.requests[1]).toEqual({
+      api: 'chargerInfo',
+      params: { pageNo: 1, numOfRows: 9999, zcode: '11', dataType: 'JSON' },
+    });
+    expect(result.lines).toContain(`전국 충전기 3대: 시도 ${REGIONS.length}곳으로 나눠 받아요 (약 ${1 + REGIONS.length}회)`);
+    expect(result.lines.some((line) => /^전국 목록 서울\(11\) 1\/1쪽: 2대, \d+\.\d초$/.test(line))).toBe(true);
+    expect(result.lines.some((line) => /^전국 목록 부산\(26\) 1\/1쪽: 1대, \d+\.\d초$/.test(line))).toBe(true);
+    expect(result.lines).toContain('전국 목록 19쪽: 항목 3개, 겹치지 않는 충전기 3대 (전국 3대)');
     expect(await meta()).toMatchObject({
       dataVersion: '20261028-120000',
       inventoryAt: T0,
@@ -114,7 +123,7 @@ describe('collect', () => {
     const tile = await readJson(outDir, 'v1', 'chargers', '751_2539.json');
     expect(tile.stations[0]).toMatchObject({ id: 'ME1', fast: { total: 1, available: 0 }, slow: { total: 1, available: 1 } });
     expect((await readJson(outDir, 'v1', 'rest-areas.json')).restAreas).toHaveLength(120);
-    expect(await ledger()).toMatchObject({ day: '2026-10-28', chargerCalls: 1, fullRuns: 1, lastFullAttemptAt: T0 });
+    expect(await ledger()).toMatchObject({ day: '2026-10-28', chargerCalls: 20, fullRuns: 1, lastFullAttemptAt: T0 });
   });
 
   it('5분 뒤에는 최근 10분 변경분만 받아 충전기 상태를 고친다', async () => {
@@ -131,7 +140,7 @@ describe('collect', () => {
     expect(await meta()).toMatchObject({ dataVersion: '20261028-120500', inventoryAt: T0, statusAt: T0 + 5 * MINUTE, statusComplete: true });
     const tile = await readJson(outDir, 'v1', 'chargers', '751_2539.json');
     expect(tile.stations[0].fast).toEqual({ total: 1, available: 1 });
-    expect(await ledger()).toMatchObject({ chargerCalls: 2, fullRuns: 1 });
+    expect(await ledger()).toMatchObject({ chargerCalls: 21, fullRuns: 1 });
   });
 
   it('같은 초에 다시 게시해도 dataVersion 이 바뀐다', async () => {
@@ -165,29 +174,45 @@ describe('collect', () => {
     expect(result.problems).toEqual(['「한국환경공단_전기자동차 충전소 정보 (충전기 상태 조회)」 오늘 호출 한도를 다 썼어요.']);
     expect(await meta()).toMatchObject({ dataVersion: '20261028-120000', statusAt: T0 });
     expect(await readJson(stateDir, 'chargers.json')).toMatchObject({ statusAt: T0 });
-    expect(await ledger()).toMatchObject({ chargerCalls: 2 });
+    expect(await ledger()).toMatchObject({ chargerCalls: 21 });
   });
 
   it('여러 쪽을 받다가 끊기면 아무것도 바꾸지 않고, 1시간 동안 전체 갱신을 다시 하지 않는다', async () => {
     const inventory = Array.from({ length: 10_500 }, (_, i) => evItem({ statId: `ME${Math.floor(i / 5)}`, chgerId: String(i % 5) }));
     const state = world({ inventory, fail: (request) => (request.params.pageNo === 2 ? xmlError('01', 'APPLICATION_ERROR') : undefined) });
     const first = await run(portalFor(state), T0);
-    expect(first).toMatchObject({ published: false, chargerCalls: 4 }); // 1쪽 + 2쪽 세 번 (두 번 다시 부름)
+    // 전국 수 + 서울 1쪽 + 서울 2쪽 네 번 (5초·20초·60초 기다렸다 세 번 다시 부름)
+    expect(first).toMatchObject({ published: false, chargerCalls: 6 });
     expect(first.problems[0]).toContain('APPLICATION_ERROR');
-    expect(await ledger()).toMatchObject({ chargerCalls: 4, fullRuns: 1, lastFullAttemptAt: T0 });
+    expect(first.lines.filter((line) => line.includes('다시 불러요'))).toEqual([
+      expect.stringMatching(/APPLICATION_ERROR \(코드 01\) 5초 뒤 다시 불러요 \(1\/3\)$/),
+      expect.stringMatching(/20초 뒤 다시 불러요 \(2\/3\)$/),
+      expect.stringMatching(/60초 뒤 다시 불러요 \(3\/3\)$/),
+    ]);
+    expect(await ledger()).toMatchObject({ chargerCalls: 6, fullRuns: 1, lastFullAttemptAt: T0 });
     const portal = portalFor({ ...state, fail: undefined });
     const waiting = await run(portal, T0 + 10 * MINUTE);
     expect(waiting.plan.chargers).toBe('none');
     expect(portal.calls('chargerInfo')).toBe(0);
     const retried = await run(portal, T0 + HOUR);
-    expect(retried).toMatchObject({ plan: { chargers: 'full' }, published: true, chargerCalls: 2 });
+    // 전국 수 + 서울 2쪽 + 나머지 시도 한 쪽씩
+    expect(retried).toMatchObject({ plan: { chargers: 'full' }, published: true, chargerCalls: 1 + 2 + (REGIONS.length - 1) });
     expect(await meta()).toMatchObject({ stations: 2100, chargers: 10_500 });
   });
 
-  it('받은 충전기 수가 totalCount 와 크게 다르면 게시하지 않는다', async () => {
+  it('시도별로 받은 합계가 전국 수와 크게 다르면 게시하지 않는다', async () => {
     const result = await run(portalFor(world({ total: 1000 })), T0);
     expect(result.published).toBe(false);
-    expect(result.problems).toEqual(['충전기를 3대 받았는데 포털은 1000대라고 해요. 받는 사이 목록이 크게 바뀌었을 수 있어요.']);
+    expect(result.problems).toEqual([
+      '시도별로 받은 충전기 3대가 전국 1000대와 맞지 않아요. 받는 사이 목록이 크게 바뀌었거나, 개편으로 시도 코드가 바뀌었을 수 있어요.',
+    ]);
+  });
+
+  it('모르는 시도 코드의 충전기가 있으면 빠진 것을 알아챈다', async () => {
+    const inventory = [...world().inventory, ...Array.from({ length: 5 }, (_, i) => evItem({ statId: `NEW${i}`, zcode: '53' }))];
+    const result = await run(portalFor(world({ inventory })), T0);
+    expect(result.published).toBe(false);
+    expect(result.problems[0]).toContain('시도별로 받은 충전기 3대가 전국 8대와 맞지 않아요');
   });
 
   it('충전소가 지난 전체 갱신보다 20% 넘게 줄면 게시하지 않는다', async () => {
@@ -236,7 +261,7 @@ describe('collect', () => {
     expect(result.published).toBe(false);
     expect(result.problems[0]).toContain('폰이 읽는 한도를 넘어요');
     await expect(readFile(join(stateDir, 'chargers.json'))).rejects.toThrow();
-    expect(await ledger()).toMatchObject({ chargerCalls: 1, fullRuns: 1 });
+    expect(await ledger()).toMatchObject({ chargerCalls: 20, fullRuns: 1 });
   });
 
   it('상태 파일이 깨졌으면 없는 셈 치고 다시 받는다', async () => {

@@ -1,4 +1,4 @@
-import { INVENTORY_PAGE_SIZE, type Settings } from './settings.js';
+import { INVENTORY_PAGE_SIZE, REGIONS, type Settings } from './settings.js';
 
 /** auto: 4.3 의 규칙대로. full·status: 손으로 실행할 때 고른다 (예산은 그대로 지킨다) */
 export type Mode = 'auto' | 'full' | 'status';
@@ -6,8 +6,8 @@ export const MODES: readonly Mode[] = ['auto', 'full', 'status'];
 
 const MINUTE = 60_000;
 const KST_OFFSET_MS = 9 * 60 * MINUTE;
-/** 저장된 목록이 없을 때 전체 갱신 호출 수 어림 (2026-10 기준 약 53쪽) */
-const FIRST_FULL_RUN_COST = 60;
+/** 저장된 목록이 없을 때 전체 갱신 호출 수 어림 (2026-10 기준 약 53쪽 + 시도 19곳 + 전국 수 1회) */
+const FIRST_FULL_RUN_COST = 90;
 /** 상태 변경분 한 번에 드는 호출 수 어림 (보통 1~2쪽) */
 const STATUS_RUN_COST = 2;
 
@@ -89,9 +89,12 @@ export function ledgerFor(previous: Ledger | null, now: number): Ledger {
   };
 }
 
-/** 전체 갱신 한 번에 드는 호출 수 어림. 목록이 조금 늘어도 되게 한 쪽을 더한다 */
+/**
+ * 전체 갱신 한 번에 드는 호출 수 어림: 전국 수 1회 + 쪽 수 + 시도마다 끝 쪽 하나씩.
+ * 다시 부르는 것은 넣지 않는다 (예산을 넘기 전에 MeteredPortal 이 멈춘다)
+ */
 export function fullRunCost(rows: number | undefined): number {
-  return rows === undefined ? FIRST_FULL_RUN_COST : Math.ceil(rows / INVENTORY_PAGE_SIZE) + 1;
+  return rows === undefined ? FIRST_FULL_RUN_COST : 1 + Math.ceil(rows / INVENTORY_PAGE_SIZE) + REGIONS.length;
 }
 
 /**

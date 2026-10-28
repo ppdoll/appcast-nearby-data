@@ -16,11 +16,13 @@ export interface EvItemOptions {
   name?: string;
   limitYn?: string;
   delYn?: string;
+  /** 시도 코드 (기본 11 서울) */
+  zcode?: string;
 }
 
 /** 충전기 정보 조회(getChargerInfo) 항목 = 충전기 한 대 */
 export function evItem(options: EvItemOptions): JsonObject {
-  const { statId, chgerId = '01', type = '04', stat = '2', output = '100', limitYn = 'N', delYn = 'N' } = options;
+  const { statId, chgerId = '01', type = '04', stat = '2', output = '100', limitYn = 'N', delYn = 'N', zcode = '11' } = options;
   return {
     statNm: options.name ?? `충전소 ${statId}`,
     statId,
@@ -38,8 +40,8 @@ export function evItem(options: EvItemOptions): JsonObject {
     stat,
     statUpdDt: '20261028101500',
     output,
-    zcode: '11',
-    zscode: '11140',
+    zcode,
+    zscode: `${zcode}140`,
     limitYn,
     limitDetail: limitYn === 'Y' ? '입주민 외 이용불가' : '',
     delYn,
@@ -63,11 +65,17 @@ export function evResponse(items: readonly JsonObject[], total = items.length): 
   });
 }
 
-/** 요청한 쪽만큼 잘라 돌려주는 충전소 API */
-export function pagedEvResponse(request: PageRequest, items: readonly JsonObject[], total = items.length): string {
+/**
+ * 요청한 쪽만큼 잘라 돌려주는 충전소 API. 시도(zcode)를 주면 그 시도 항목만 센다.
+ * [total] 은 전국 수(시도 없이 부를 때)를 바꿔 볼 때 쓴다.
+ */
+export function pagedEvResponse(request: PageRequest, items: readonly JsonObject[], total?: number): string {
+  const zcode = request.params.zcode;
+  const region = zcode === undefined ? items : items.filter((item) => item.zcode === zcode);
   const page = Number(request.params.pageNo);
   const size = Number(request.params.numOfRows);
-  return evResponse(items.slice((page - 1) * size, page * size), total);
+  const count = zcode === undefined ? (total ?? items.length) : region.length;
+  return evResponse(region.slice((page - 1) * size, page * size), count);
 }
 
 export interface RestAreaItemOptions {

@@ -2,7 +2,7 @@ import { applyStatus, InventoryBuilder, statusUpdate } from './chargers.js';
 import { decide, ledgerFor, nextDataVersion } from './plan.js';
 import { MeteredPortal, PortalError } from './portal.js';
 import { parseRestAreas } from './rest-areas.js';
-import { DEFAULT_SETTINGS, INVENTORY_PAGE_SIZE, MAX_INVENTORY_PAGES, MAX_REST_AREA_PAGES, MAX_STATUS_PAGES, REST_AREA_PAGE_SIZE, STATUS_PAGE_SIZE, STATUS_PERIOD_MINUTES, } from './settings.js';
+import { DEFAULT_SETTINGS, INVENTORY_PAGE_SIZE, MAX_INVENTORY_PAGES, MAX_REST_AREA_PAGES, MAX_STATUS_PAGES, REGIONS, REST_AREA_PAGE_SIZE, STATUS_PAGE_SIZE, STATUS_PERIOD_MINUTES, } from './settings.js';
 import { buildSite, checkSite, largestTile, writeSite } from './site.js';
 import { loadState, saveState } from './state.js';
 /** 받은 데이터가 게시 전 검사(docs/nearby-server.md 4.5)를 통과하지 못했다 */
@@ -31,6 +31,7 @@ export async function collect(options) {
     const portal = new MeteredPortal(options.portal, {
         chargerCallBudget: settings.dailyChargerCalls - ledger.chargerCalls,
         sleep: options.sleep,
+        log,
     });
     const problems = mode !== 'auto' && plan.chargers === 'none' ? [plan.reason] : [];
     let chargers = state.chargers;
@@ -109,38 +110,32 @@ async function attempt(work, problems) {
         return undefined;
     }
 }
-/** 전국 목록을 모두 받아 충전소 목록을 새로 만든다 */
+/**
+ * 전국 목록을 모두 받아 충전소 목록을 새로 만든다. 전국 수를 먼저 1대만 받아 알아낸 뒤, 시도(zcode)마다 나눠 받는다.
+ * 시도별로 받은 합계가 전국 수와 맞아야 쓴다 (시도 코드가 바뀌어 빠진 곳이 있으면 알린다).
+ */
 async function fetchInventory(portal, previous, startedAt, settings, log) {
-    const builder = new InventoryBuilder();
-    let total = 0;
-    let page = 0;
-    for (;;) {
-        page++;
-        const result = await portal.page({
-            api: 'chargerInfo',
-            params: { pageNo: page, numOfRows: INVENTORY_PAGE_SIZE, dataType: 'JSON' },
-        });
-        if (result.totalCount === null)
-            throw new PortalError('충전기 정보 응답에 전체 수(totalCount)가 없어요.');
-        total = result.totalCount;
-        const pages = Math.ceil(total / INVENTORY_PAGE_SIZE);
-        if (page === 1) {
-            if (pages > MAX_INVENTORY_PAGES) {
-                throw new CheckError(`충전기가 ${total}대라 ${pages}쪽을 받아야 해요 (${MAX_INVENTORY_PAGES}쪽까지만 받아요).`);
-            }
-            if (pages - 1 > portal.remainingChargerCalls) {
-                throw new PortalError(`전국 목록 ${pages}쪽을 받기에는 오늘 남은 호출 예산(${portal.remainingChargerCalls}회)이 모자라요.`);
-            }
-        }
-        builder.addItems(result.items);
-        if (result.items.length < INVENTORY_PAGE_SIZE || page >= pages)
-            break;
-        if (page >= MAX_INVENTORY_PAGES)
-            throw new CheckError(`전국 목록이 ${MAX_INVENTORY_PAGES}쪽을 넘어요.`);
+    const national = await portal.page({ api: 'chargerInfo', params: { pageNo: 1, numOfRows: 1, dataType: 'JSON' } });
+    if (national.totalCount === null)
+        throw new PortalError('충전기 정보 응답에 전체 수(totalCount)가 없어요.');
+    const total = national.totalCount;
+    const pages = Math.ceil(total / INVENTORY_PAGE_SIZE);
+    if (pages > MAX_INVENTORY_PAGES) {
+        throw new CheckError(`충전기가 ${total}대라 ${pages}쪽을 받아야 해요 (${MAX_INVENTORY_PAGES}쪽까지만 받아요).`);
     }
-    log(`전국 목록 ${page}쪽: 항목 ${builder.items}개, 겹치지 않는 충전기 ${builder.uniqueChargers}대 (포털 ${total}대)`);
+    const needed = pages + REGIONS.length;
+    if (needed > portal.remainingChargerCalls) {
+        throw new PortalError(`전국 목록(약 ${needed}회)을 받기에는 오늘 남은 호출 예산(${portal.remainingChargerCalls}회)이 모자라요.`);
+    }
+    log(`전국 충전기 ${total}대: 시도 ${REGIONS.length}곳으로 나눠 받아요 (약 ${needed}회)`);
+    const builder = new InventoryBuilder();
+    let pageCount = 0;
+    for (const [code, name] of REGIONS)
+        pageCount += await fetchRegion(portal, builder, code, name, log);
+    log(`전국 목록 ${pageCount}쪽: 항목 ${builder.items}개, 겹치지 않는 충전기 ${builder.uniqueChargers}대 (전국 ${total}대)`);
     if (Math.abs(builder.uniqueChargers - total) > total * settings.countTolerance) {
-        throw new CheckError(`충전기를 ${builder.uniqueChargers}대 받았는데 포털은 ${total}대라고 해요. 받는 사이 목록이 크게 바뀌었을 수 있어요.`);
+        throw new CheckError(`시도별로 받은 충전기 ${builder.uniqueChargers}대가 전국 ${total}대와 맞지 않아요. ` +
+            '받는 사이 목록이 크게 바뀌었거나, 개편으로 시도 코드가 바뀌었을 수 있어요.');
     }
     const stations = builder.build();
     if (stations.length === 0)
@@ -151,6 +146,25 @@ async function fetchInventory(portal, previous, startedAt, settings, log) {
     }
     log(`충전소 ${stations.length}곳 (이용자 제한·삭제·버스 전용·좌표 이상은 뺐어요)`);
     return { version: 1, inventoryAt: startedAt, statusAt: startedAt, statusComplete: true, rows: total, stations };
+}
+/** 한 시도의 목록을 쪽마다 받아 [builder] 에 넣고, 쪽마다 진행을 남긴다. 받은 쪽 수를 돌려준다 */
+async function fetchRegion(portal, builder, code, name, log) {
+    for (let page = 1;; page++) {
+        const started = performance.now();
+        const result = await portal.page({
+            api: 'chargerInfo',
+            params: { pageNo: page, numOfRows: INVENTORY_PAGE_SIZE, zcode: code, dataType: 'JSON' },
+        });
+        builder.addItems(result.items);
+        const total = result.totalCount ?? 0;
+        const pages = Math.max(1, Math.ceil(total / INVENTORY_PAGE_SIZE));
+        const seconds = ((performance.now() - started) / 1000).toFixed(1);
+        log(`전국 목록 ${name}(${code}) ${page}/${pages}쪽: ${result.items.length}대, ${seconds}초`);
+        if (result.items.length < INVENTORY_PAGE_SIZE || page * INVENTORY_PAGE_SIZE >= total)
+            return page;
+        if (page >= MAX_INVENTORY_PAGES)
+            throw new CheckError(`${name}(${code}) 목록이 ${MAX_INVENTORY_PAGES}쪽을 넘어요.`);
+    }
 }
 /** 최근 10분 동안 바뀐 충전기 상태를 받아 반영한다. 모든 쪽을 받은 뒤에야 고친다 */
 async function fetchStatus(portal, current, startedAt, incomplete, log) {

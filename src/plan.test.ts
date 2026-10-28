@@ -72,12 +72,12 @@ describe('decide', () => {
     expect(plan({ chargers: null }, { fullRuns: 1, lastFullAttemptAt: NOW - 10 * MINUTE })).toMatchObject({ chargers: 'none' });
   });
 
-  it('전체 갱신 예산(쪽 수 + 1)이 모자라면 변경분만', () => {
-    expect(fullRunCost(520_000)).toBe(54);
-    expect(fullRunCost(undefined)).toBe(60);
+  it('전체 갱신 예산(전국 수 1회 + 쪽 수 + 시도 수)이 모자라면 변경분만', () => {
+    expect(fullRunCost(520_000)).toBe(1 + 53 + 19);
+    expect(fullRunCost(undefined)).toBe(90);
     const old = { chargers: { ...fresh, inventoryAt: NOW - 25 * HOUR } };
-    expect(plan(old, { chargerCalls: 900 - 53 })).toMatchObject({ chargers: 'status' });
-    expect(plan(old, { chargerCalls: 900 - 54 })).toMatchObject({ chargers: 'full' });
+    expect(plan(old, { chargerCalls: 900 - 72 })).toMatchObject({ chargers: 'status' });
+    expect(plan(old, { chargerCalls: 900 - 73 })).toMatchObject({ chargers: 'full' });
   });
 
   it('예산을 다 쓰면 아무것도 받지 않는다', () => {

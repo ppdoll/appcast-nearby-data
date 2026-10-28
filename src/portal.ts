@@ -322,18 +322,31 @@ function networkReason(error: unknown): string {
   return typeof code === 'string' && /^[A-Z][A-Z0-9_]{1,39}$/.test(code) ? code : '네트워크 오류';
 }
 
-/** 공공데이터포털 대신 견본 응답 파일 <폴더>/<api>-<pageNo>.json 을 읽는다 (테스트·PC 데모용) */
+/**
+ * 공공데이터포털 대신 견본 응답 파일 <폴더>/<api>-<pageNo>.json 을 읽는다 (테스트·PC 데모용).
+ * 시도(zcode)를 주면 포털처럼 그 시도의 항목만 돌려준다.
+ */
 export class FixturePortal implements Portal {
   constructor(private readonly dir: string) {}
 
   async get(request: PageRequest): Promise<string> {
     const name = `${request.api}-${request.params.pageNo ?? 1}.json`;
+    let body: string;
     try {
-      return await readFile(join(this.dir, name), 'utf8');
+      body = await readFile(join(this.dir, name), 'utf8');
     } catch {
       throw new PortalError(`견본 응답 ${name} 이 없어요.`);
     }
+    const zcode = request.params.zcode;
+    return zcode === undefined ? body : inRegion(body, String(zcode));
   }
+}
+
+/** 충전소 API 견본 응답 가운데 [zcode] 시도의 항목만 남긴다 */
+function inRegion(body: string, zcode: string): string {
+  const response = JSON.parse(body) as { items?: { item?: JsonObject[] } };
+  const items = (response.items?.item ?? []).filter((item) => item.zcode === zcode);
+  return JSON.stringify({ ...response, totalCount: items.length, numOfRows: items.length, items: { item: items } });
 }
 
 export interface MeteredPortalOptions {
@@ -342,9 +355,12 @@ export interface MeteredPortalOptions {
   /** 일시 오류를 다시 부르는 횟수 */
   retries?: number;
   sleep?: (ms: number) => Promise<unknown>;
+  /** 다시 부를 때 알린다 */
+  log?: (line: string) => void;
 }
 
-const RETRY_DELAYS_MS = [3_000, 10_000];
+/** 504·시간 초과는 포털이 잠시 바쁜 것일 수 있어 점점 길게 기다린다 */
+const RETRY_DELAYS_MS = [5_000, 20_000, 60_000];
 
 /**
  * 응답을 읽어 주는 Portal. 충전소 API 호출을 다시 부른 것까지 세고, 예산을 넘기 전에 멈춘다.
@@ -371,7 +387,9 @@ export class MeteredPortal {
         return parsePage(request.api, await this.portal.get(request));
       } catch (e) {
         if (!(e instanceof PortalError) || !e.retryable || attempt >= retries) throw e;
-        await (this.options.sleep ?? delay)(RETRY_DELAYS_MS[Math.min(attempt, RETRY_DELAYS_MS.length - 1)]);
+        const wait = RETRY_DELAYS_MS[Math.min(attempt, RETRY_DELAYS_MS.length - 1)];
+        this.options.log?.(`${e.message} ${wait / 1000}초 뒤 다시 불러요 (${attempt + 1}/${retries})`);
+        await (this.options.sleep ?? delay)(wait);
       }
     }
   }

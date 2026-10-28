@@ -27,7 +27,7 @@ concurrency:
 jobs:
   collect:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30 # 전체 갱신은 시도 19곳·약 70쪽에, 504 가 나면 최대 85초씩 기다렸다 다시 부른다
     permissions:
       contents: read
       actions: write # 오래된 상태 캐시 지우기
