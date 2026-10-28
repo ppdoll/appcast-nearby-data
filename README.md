@@ -52,7 +52,7 @@ npm run collect -- --state state --out site --fixtures fixtures                 
 
 ## GitHub 에서 돌리기
 
-[.github/workflows/nearby-data.yml](.github/workflows/nearby-data.yml) 이 5분마다(3분부터) 수집해 GitHub Pages 로 게시한다.
+[.github/workflows/nearby-data.yml](.github/workflows/nearby-data.yml) 이 5분마다(4분부터) 수집해 GitHub Pages 로 게시한다.
 
 - 저장소 시크릿 `DATA_GO_KR_SERVICE_KEY` 에 공공데이터포털 인증키를 넣고, Settings → Pages 의 Source 를 GitHub Actions 로 고른다.
 - 처음에는 Actions 탭에서 `nearby-data` 를 `full` 로 손으로 한 번 돌린다.
